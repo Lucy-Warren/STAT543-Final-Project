@@ -1,0 +1,35 @@
+---
+title: "543-01-data-engineering"
+author: "Lucy Warren"
+date: "2026-11-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(nhanesA)
+```
+```{r}
+demo_raw <- nhanes('DEMO_D')    # demographics
+huq_raw <- nhanes('HUQ_D')      # health status / access to care
+bmx_raw <- nhanes('BMX_D')      # body measures
+smq_raw <- nhanes('SMQ_D')      # smoking
+alq_raw <- nhanes('ALQ_D')      # alcohol use
+paq_raw <- nhanes('PAQ_D')      # physical activity
+diq_raw <- nhanes('DIQ_D')      # diabetes
+mcq_raw <- nhanes('MCQ_D')      # medical conditions
+```
+
+```{r}
+nhanesTableVars('DEMOGRAPHICS',  'DEMO_D')
+nhanesTableVars('EXAMINATION',   'BMX_D')
+nhanesTableVars('QUESTIONNAIRE', 'HUQ_D')
+nhanesTableVars('QUESTIONNAIRE', 'SMQ_D')
+nhanesTableVars('QUESTIONNAIRE', 'ALQ_D')
+nhanesTableVars('QUESTIONNAIRE', 'PAQ_D')
+nhanesTableVars('QUESTIONNAIRE', 'DIQ_D')
+nhanesTableVars('QUESTIONNAIRE', 'MCQ_D')
+```
