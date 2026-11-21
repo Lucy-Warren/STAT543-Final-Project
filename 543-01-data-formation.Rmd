@@ -1,0 +1,141 @@
+---
+title: "543-01-data-formation"
+author: "Lucy Warren"
+date: "2026-11-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(nhanesA)
+library(dplyr)
+library(purrr)
+library(readr)
+```
+```{r}
+demo_raw <- nhanes('DEMO_D')    # demographics
+huq_raw <- nhanes('HUQ_D')      # health status / access to care
+bmx_raw <- nhanes('BMX_D')      # body measures
+smq_raw <- nhanes('SMQ_D')      # smoking
+alq_raw <- nhanes('ALQ_D')      # alcohol use
+paq_raw <- nhanes('PAQ_D')      # physical activity
+diq_raw <- nhanes('DIQ_D')      # diabetes
+mcq_raw <- nhanes('MCQ_D')      # medical conditions
+```
+
+```{r}
+# Demographic data
+nhanesTableVars('DEMOGRAPHICS', 'DEMO_D')
+
+demo <- demo_raw %>%
+  select(
+    "RIAGENDR",  # gender
+    "RIDAGEYR",  # age in years
+    "RIDRETH1",  # race/Hispanic origin
+    "DMDEDUC2",  # education level
+    "DMDMARTL",  # marital status
+    "INDFMPIR",  # ratio of family income to poverty line
+    "INDHHINC",  # total household income
+    "SEQN"
+  )
+
+head(demo)
+```
+
+```{r}
+# Examination data
+nhanesTableVars('EXAMINATION', 'BMX_D')
+
+bmx <- bmx_raw %>%
+  select(
+    "BMXWAIST",  # waist circumference (cm)
+    "SEQN"
+  )
+
+head(bmx)
+```
+
+```{r}
+# Health status/access to care data
+nhanesTableVars('QUESTIONNAIRE', 'HUQ_D')
+
+huq <- huq_raw %>%
+  select(
+    "HUQ010",  # outcome
+    "SEQN"
+  )
+
+head(huq)
+```
+
+```{r}
+# Physical activity data
+nhanesTableVars('QUESTIONNAIRE', 'PAQ_D')
+
+paq <- paq_raw %>%
+  select(
+    "PAD320",  # moderate activity
+    "PAD440",  # strength activity
+    "PAQ180",  # which sentence matched activity level
+    "SEQN"
+  )
+
+head(paq)
+```
+
+```{r}
+# Diabetes data
+nhanesTableVars('QUESTIONNAIRE', 'DIQ_D')
+
+diq <- diq_raw %>%
+  select(
+    "DID040",  # age of diabetes diagnosis (use as indicator)
+    "SEQN"
+  )
+
+head(diq)
+```
+
+```{r}
+# Medical condition data
+nhanesTableVars('QUESTIONNAIRE', 'MCQ_D')
+
+mcq <- mcq_raw %>%
+  select(
+    "MCQ035",   # athsma
+    "MCQ092",   # blood transfusion
+    "MCQ160A",  # arthritis
+    "MCQ160B",  # congenetive heart failure
+    "MCQ160C",  # coronary heart disease
+    "MCQ160D",  # angina
+    "MCQ160E",  # heart attack
+    "MCQ160F",  # stroke
+    "MCQ160G",  # emphysema
+    "MCQ160K",  # chronic bronchitis
+    "MCQ160L",  # ?
+    "MCQ160M",  # thyroid problems
+    "MCQ220",   # cancer
+    "SEQN"
+  )
+
+head(mcq)
+```
+
+```{r}
+# Put all data frames into a list
+df_list <- list(demo, bmx, huq, paq, diq, mcq)
+
+# Merge them all on SEQN ID number
+full_df <- df_list %>%
+  reduce(full_join, by = "SEQN")
+
+head(full_df)
+```
+
+```{r}
+# Save df to csv
+write_csv(full_df, "~/stat543-fall2026/FinalProject/full_health_data.csv")
+```
