@@ -1,0 +1,516 @@
+---
+title: "Final Project"
+author: "Melia Warner"
+date: "2026-12-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+# Introduction
+
+
+# Data Construction and Exploration
+
+## Data Collection
+
+We obtained data from the 2005–2006 cycle of the National Health and 
+Nutrition Examination Survey (NHANES) using the `nhanesA` package. 
+We selected six modules to examine the relationship between self-rated 
+general health and demographic characteristics, physical activity, 
+body measurements, and medical conditions.
+
+```{r}
+library(nhanesA)
+library(dplyr)
+library(purrr)
+library(readr)
+```
+
+```{r}
+demo_raw <- nhanes("DEMO_D")  # Demographics
+huq_raw <- nhanes("HUQ_D")    # Health status/access to care
+bmx_raw <- nhanes("BMX_D")    # Body measurements
+paq_raw <- nhanes("PAQ_D")    # Physical activity
+diq_raw <- nhanes("DIQ_D")    # Diabetes
+mcq_raw <- nhanes("MCQ_D")    # Medical conditions
+```
+
+## Variable Selection
+
+We selected potential predictors from each module based on their 
+relevance to self-rated general health. The respondent identification 
+number (SEQN) was retained in each dataset to allow the modules to 
+be merged.
+
+```{r demographics}
+# Select demographic and socioeconomic predictors
+demo <- demo_raw %>%
+  select(
+    RIAGENDR,  # Gender
+    RIDAGEYR,  # Age in years
+    RIDRETH1,  # Race/Hispanic origin
+    DMDEDUC2,  # Education level
+    DMDMARTL,  # Marital status
+    INDFMPIR,  # Family income-to-poverty ratio
+    INDHHINC,  # Total household income
+    SEQN
+  )
+```
+
+```{r body-measurements}
+# Select waist circumference as a measure of body composition
+bmx <- bmx_raw %>%
+  select(
+    BMXWAIST,  # Waist circumference (cm)
+    SEQN
+  )
+```
+
+```{r health-status}
+# Select the response variable
+huq <- huq_raw %>%
+  select(
+    HUQ010,  # Self-rated general health
+    SEQN
+  )
+```
+
+```{r physical-activity}
+# Select physical activity predictors
+paq <- paq_raw %>%
+  select(
+    PAD320,  # Moderate physical activity
+    PAD440,  # Muscle-strengthening activity
+    PAQ180,  # Usual daily activity level
+    SEQN
+  )
+```
+
+```{r diabetes}
+# Select diabetes diagnosis status
+diq <- diq_raw %>%
+  select(
+    DIQ010,  # Ever diagnosed with diabetes
+    SEQN
+  )
+```
+
+```{r medical-conditions}
+# Select medical history and chronic condition predictors
+mcq <- mcq_raw %>%
+  select(
+    MCQ035,   # Current asthma
+    MCQ092,   # History of blood transfusion
+    MCQ160A,  # Arthritis
+    MCQ160B,  # Congestive heart failure
+    MCQ160C,  # Coronary heart disease
+    MCQ160D,  # Angina
+    MCQ160E,  # Heart attack
+    MCQ160F,  # Stroke
+    MCQ160G,  # Emphysema
+    MCQ160K,  # Chronic bronchitis
+    MCQ160L,  # Liver condition
+    MCQ160M,  # Thyroid problems
+    MCQ220,   # Cancer
+    SEQN
+  )
+```
+
+## Merging the Datasets
+
+The six datasets were merged using SEQN, a unique identification 
+number assigned to each NHANES participant. We used full joins to 
+retain participants even if they did not have responses in every 
+selected module.
+
+```{r}
+# Combine the selected datasets into a list
+df_list <- list(
+  demo = demo, bmx = bmx, huq = huq,
+  paq = paq, diq = diq, mcq = mcq
+)
+
+# Examine module sample sizes before merging
+sapply(df_list, nrow)
+
+# Verify that participant IDs are unique within each module
+stopifnot(all(sapply(df_list, function(x) {
+  !anyDuplicated(x$SEQN)
+})))
+
+# Merge datasets by participant identification number
+full_df <- df_list %>%
+  reduce(full_join, by = "SEQN")
+
+dim(full_df)
+```
+
+The merged dataset contained 10,348 participants and 27 variables, 
+including the participant identification number.
+
+```{r, eval=FALSE}
+# Optional: Export the merged, uncleaned dataset
+write_csv(full_df, "full_health_data_2005_2006.csv")
+```
+
+## Initial Data Exploration
+
+We examined the structure of the dataset and the proportion of 
+missing observations for each variable to identify potential 
+data-cleaning concerns.
+
+```{r, results='hide'}
+str(full_df)
+```
+
+```{r}
+# Calculate the percentage of missing observations
+round(colMeans(is.na(full_df)) * 100, 2)
+```
+
+Several variables had substantial missingness, particularly education 
+level and medical conditions. This was likely due in part to differences 
+in age eligibility across NHANES questionnaire modules.
+
+## Restricting the Study Population
+
+We restricted our analysis to adults aged 20 years and older because 
+several demographic and medical condition variables were only 
+collected for adults. This also allowed us to examine self-rated 
+health within a more consistent study population.
+
+```{r}
+adult_df <- full_df %>%
+  filter(RIDAGEYR >= 20)
+
+dim(adult_df)
+
+# Reexamine missingness after restricting the sample
+round(colMeans(is.na(adult_df)) * 100, 2)
+```
+
+Restricting the dataset to adults reduced the sample size to 4,979 
+participants. Missingness decreased substantially for education, 
+physical activity, diabetes, and most medical conditions, indicating 
+that much of the original missingness was related to age eligibility.
+
+## Recoding Missing Responses
+
+The `nhanesA` package provided categorical variables with descriptive 
+factor levels. Responses of "Refused" and "Don't know" were recoded 
+as missing values because they did not provide meaningful information 
+about the corresponding variables.
+
+```{r, results='hide'}
+# Examine response categories and frequencies
+lapply(adult_df, function(x) {
+  if (is.factor(x)) table(x, useNA = "ifany")
+})
+```
+
+```{r}
+# Convert invalid categorical responses to NA
+clean_df <- adult_df %>%
+  mutate(across(where(is.factor), ~ {
+    x <- as.character(.x)
+    x[tolower(x) %in% c("refused", "don't know")] <- NA
+    factor(x)
+  }))
+```
+
+## Preparing the Response Variable
+
+Self-rated general health (HUQ010) consists of five naturally ordered 
+categories ranging from excellent to poor health. We converted the 
+response variable to an ordered factor to preserve this ordinal 
+structure for statistical modeling.
+
+```{r}
+clean_df$HUQ010 <- factor(
+  clean_df$HUQ010,
+  levels = c("Excellent,", "Very good,", "Good,", "Fair, or", "Poor?"),
+  labels = c("Excellent", "Very good", "Good", "Fair", "Poor"),
+  ordered = TRUE
+)
+
+table(clean_df$HUQ010, useNA = "always")
+```
+
+Five participants responded that they did not know their general 
+health status. These participants were excluded because a valid 
+response variable is necessary for model development and validation.
+
+```{r}
+clean_df <- clean_df %>%
+  filter(!is.na(HUQ010))
+
+dim(clean_df)
+```
+
+Following the exclusion of these participants, 4,974 observations 
+remained in the dataset.
+
+## Recoding Predictor Variables
+
+### Asthma
+
+The original asthma variable (MCQ035) had substantial missingness 
+because the question was only administered to participants who had 
+previously reported an asthma diagnosis. We replaced this variable 
+with MCQ010, which indicates whether a participant has ever been 
+diagnosed with asthma.
+
+```{r recode-asthma}
+# Select history of asthma diagnosis
+asthma <- mcq_raw %>%
+  select(SEQN, MCQ010)
+
+# Replace the current asthma variable with asthma diagnosis history
+clean_df <- clean_df %>%
+  select(-MCQ035) %>%
+  left_join(asthma, by = "SEQN")
+
+# Set No as the reference and recode unknown responses as NA
+clean_df$MCQ010 <- factor(
+  clean_df$MCQ010,
+  levels = c("No", "Yes")
+)
+
+table(clean_df$MCQ010, useNA = "always")
+```
+
+Replacing MCQ035 with MCQ010 substantially reduced asthma-related 
+missingness, leaving only seven missing observations.
+
+### Diabetes
+
+Diabetes status was retained as a categorical variable with three 
+levels: no diabetes, diabetes, and borderline diabetes. Borderline 
+diabetes was retained as a separate category because it may have a 
+different association with self-rated health.
+
+```{r recode-diabetes}
+clean_df$DIQ010 <- factor(
+  clean_df$DIQ010,
+  levels = c("No", "Yes", "Borderline")
+)
+
+table(clean_df$DIQ010, useNA = "always")
+```
+
+### Physical Activity
+
+For moderate and muscle-strengthening physical activity, participants 
+who reported being unable to perform the activity were retained as 
+a separate category. Physical inability may have a different 
+relationship with self-rated health than choosing not to participate.
+
+```{r recode-activity}
+clean_df <- clean_df %>%
+  mutate(
+    PAD320 = factor(
+      PAD320,
+      levels = c("No", "Yes", "Unable to do activity")
+    ),
+    PAD440 = factor(
+      PAD440,
+      levels = c("No", "Yes", "Unable to do activity")
+    )
+  )
+```
+
+The response categories for usual daily physical activity were 
+shortened to improve the readability of tables and model results.
+
+```{r relabel-daily-activity}
+clean_df$PAQ180 <- factor(
+  clean_df$PAQ180,
+  levels = levels(adult_df$PAQ180)[1:4],
+  labels = c(
+    "Mostly sitting",
+    "Standing or walking",
+    "Light lifting or climbing",
+    "Heavy work"
+  )
+)
+```
+
+### Medical Conditions
+
+For each medical condition, "No" was established as the reference 
+category to allow comparisons between participants with and 
+without the condition.
+
+```{r medical-reference-levels}
+clean_df <- clean_df %>%
+  mutate(across(starts_with("MCQ"),
+                ~ factor(.x, levels = c("No", "Yes"))))
+```
+
+### Demographic Characteristics
+
+Reference categories were established for the categorical demographic 
+predictors to facilitate interpretation of the regression coefficients.
+
+```{r demographic-reference-levels}
+clean_df <- clean_df %>%
+  mutate(
+    RIAGENDR = relevel(RIAGENDR, ref = "Male"),
+    RIDRETH1 = relevel(RIDRETH1, ref = "Non-Hispanic White"),
+    DMDEDUC2 = relevel(DMDEDUC2, ref = "College Graduate or above"),
+    DMDMARTL = relevel(DMDMARTL, ref = "Married")
+  )
+```
+
+## Remaining Missing Data
+
+After recoding the selected variables, we examined the remaining 
+missing observations and determined how many participants had 
+complete responses across all candidate variables.
+
+```{r remaining-missingness}
+round(colMeans(is.na(clean_df)) * 100, 2)
+
+sum(complete.cases(clean_df))
+```
+
+Following data cleaning, 4,159 participants had complete responses 
+across all currently selected variables. Waist circumference and 
+the family income-to-poverty ratio accounted for substantial 
+portions of the remaining missingness.
+
+## Preparing the Analytic Dataset
+
+We retained the family income-to-poverty ratio (INDFMPIR) rather 
+than total household income (INDHHINC) because it accounts for 
+family size when measuring economic circumstances. Retaining both 
+variables could also introduce redundancy into the model.
+
+```{r}
+analysis_df <- clean_df %>%
+  select(-INDHHINC)
+
+sum(complete.cases(analysis_df))
+```
+
+After removing household income, 4,170 participants had complete 
+responses across all remaining candidate predictors.
+
+## Training and Testing Datasets
+
+To evaluate the final model's predictive performance on observations 
+not used during model development, we randomly divided the dataset 
+into an 80% training dataset and a 20% testing dataset. We established 
+a random seed to ensure reproducibility.
+
+```{r}
+set.seed(443)
+
+train_index <- sample(
+  seq_len(nrow(analysis_df)),
+  size = floor(0.80 * nrow(analysis_df))
+)
+
+train_df <- analysis_df[train_index, ]
+test_df <- analysis_df[-train_index, ]
+
+dim(train_df)
+dim(test_df)
+```
+
+The training dataset contained 3,979 participants, while the testing 
+dataset contained 995 participants. Incomplete predictor observations 
+were retained at this stage because the final predictors had not yet 
+been selected. The testing dataset was held out from exploratory 
+analysis, model development, and model selection.
+
+## Exploratory Data Analysis
+
+Exploratory data analysis was conducted using only the training 
+dataset to examine relationships between potential predictors 
+and self-rated general health. Cross-tabulations and conditional 
+percentages were used to compare the distribution of self-rated 
+health across predictor categories.
+
+### Diabetes and Self-Rated Health
+
+We first examined the relationship between diabetes status and 
+self-rated general health.
+
+```{r diabetes-health-table}
+# Cross-tabulate diabetes status and self-rated health
+table(train_df$DIQ010, train_df$HUQ010)
+
+# Calculate row percentages
+round(prop.table(
+  table(train_df$DIQ010, train_df$HUQ010), 1
+) * 100, 2)
+```
+
+Participants with diabetes generally reported poorer health than participants without diabetes. Approximately 49.61% of participants with diabetes reported fair or poor health, compared with 18.15% of participants without diabetes. Participants with borderline diabetes also reported fair or poor health more frequently (37.31%) than participants without diabetes. These results suggest that diabetes status may be a valuable predictor of self-rated general health.
+
+### Arthritis and Self-Rated Health
+
+We examined whether the distribution of self-rated health differed 
+between participants with and without a history of arthritis.
+
+```{r arthritis-health-table}
+# Cross-tabulate arthritis and self-rated health
+table(train_df$MCQ160A, train_df$HUQ010)
+
+# Calculate row percentages
+round(prop.table(
+  table(train_df$MCQ160A, train_df$HUQ010), 1
+) * 100, 2)
+```
+
+Participants with arthritis generally reported poorer health than participants without arthritis. Approximately 35.83% of participants with arthritis reported fair or poor health, compared with 16.88% of participants without arthritis. This suggests that arthritis may be an important predictor of self-rated general health.
+
+### Physical Activity and Self-Rated Health
+
+We examined the relationship between usual daily physical activity 
+and self-rated general health to determine whether health ratings 
+differed across activity levels.
+
+```{r activity-health-table}
+# Cross-tabulate daily activity level and self-rated health
+table(train_df$PAQ180, train_df$HUQ010)
+
+# Calculate row percentages
+round(prop.table(
+  table(train_df$PAQ180, train_df$HUQ010), 1
+) * 100, 2)
+```
+
+Participants who reported sitting for most of the day generally reported poorer health than participants with more active daily routines. Approximately 32.02% of participants who primarily sat throughout the day reported fair or poor health, compared with 12.94% of participants who frequently performed light lifting or climbing. These findings suggest that usual daily physical activity level may be associated with self-rated general health.
+
+### Relationships Between Predictors
+
+We also examined relationships among the selected categorical 
+predictors to identify potential associations and redundancy.
+
+```{r predictor-relationships}
+# Diabetes status and arthritis
+round(prop.table(
+  table(train_df$DIQ010, train_df$MCQ160A), 1
+) * 100, 2)
+
+# Diabetes status and daily physical activity
+round(prop.table(
+  table(train_df$DIQ010, train_df$PAQ180), 1
+) * 100, 2)
+
+# Arthritis and daily physical activity
+round(prop.table(
+  table(train_df$MCQ160A, train_df$PAQ180), 1
+) * 100, 2)
+```
+
+Associations were also observed among diabetes status, arthritis, and daily physical activity. Approximately 48.35% of participants with diabetes reported having arthritis, compared with 21.86% of participants without diabetes. Additionally, participants with diabetes or arthritis were more likely to report sitting for most of the day than participants without these conditions. Although these relationships suggest some overlap among the predictors, each variable measures a distinct aspect of health. Therefore, all three predictors were retained for further evaluation during model selection.
